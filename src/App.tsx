@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, RotateCcw, Volume2, Trophy, Music, Gamepad2, CheckCircle2, XCircle } from 'lucide-react';
+import { Play, Pause, RotateCcw, Volume2, Trophy, Music, Gamepad2, CheckCircle2, XCircle, Headphones, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // אנימציות המותאמות למשמעות ולצורה של כל טעם (עדינות יותר)
@@ -74,6 +74,8 @@ const colors = [
   'bg-purple-100 text-purple-700 border-purple-300',
   'bg-pink-100 text-pink-700 border-pink-300',
 ];
+
+const assetUrl = (fileName: string) => `${import.meta.env.BASE_URL}${fileName}`;
 
 // פונקציה להשמעת צלילי הצלחה/טעות (במקום דיבור)
 const playSound = (type: 'correct' | 'incorrect') => {
@@ -148,7 +150,7 @@ export default function App() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4">
-        {activeTab === 'learn' ? <LearnMode /> : <GameMode />}
+        {activeTab === 'learn' ? <LearnMode /> : <LearningGameMode />}
       </main>
     </div>
   );
@@ -181,7 +183,7 @@ function LearnMode() {
         if (currentIndexRef.current < taamim.length - 1) {
           const nextIndex = currentIndexRef.current + 1;
           setCurrentIndex(nextIndex);
-          audio.src = `/${taamim[nextIndex].id}.mp3`;
+          audio.src = assetUrl(`${taamim[nextIndex].id}.mp3`);
           audio.play().catch(e => console.error("Audio play failed", e));
         } else {
           // Finished the whole song
@@ -221,7 +223,7 @@ function LearnMode() {
       }
       
       setCurrentIndex(startIndex);
-      audioRef.current.src = `/${taamim[startIndex].id}.mp3`;
+      audioRef.current.src = assetUrl(`${taamim[startIndex].id}.mp3`);
       audioRef.current.play().catch(e => console.error("Audio play failed", e));
     }
   };
@@ -244,7 +246,7 @@ function LearnMode() {
     setIsPlaying(true);
     
     audioRef.current.pause();
-    audioRef.current.src = `/${taamim[index].id}.mp3`;
+    audioRef.current.src = assetUrl(`${taamim[index].id}.mp3`);
     audioRef.current.play().catch(e => console.error("Audio play failed", e));
   };
 
@@ -351,6 +353,208 @@ function LearnMode() {
 // ==========================================
 // מצב משחק (מצא את הטעם)
 // ==========================================
+const uniquePracticeTaamim = Array.from(new Map(taamim.map(item => [item.cleanName, item])).values());
+const lessonSize = 5;
+const lessonCount = Math.ceil(uniquePracticeTaamim.length / lessonSize);
+const sessionLength = 10;
+
+type PracticeQuestion = {
+  correct: typeof taamim[0];
+  options: typeof taamim;
+};
+
+function getLessonPool(lessonIndex: number) {
+  const start = lessonIndex * lessonSize;
+  const pool = uniquePracticeTaamim.slice(start, start + lessonSize);
+  return pool.length >= 4 ? pool : uniquePracticeTaamim.slice(-lessonSize);
+}
+
+function LearningGameMode() {
+  const [gameType, setGameType] = useState<'visual' | 'audio'>('visual');
+  const [lessonIndex, setLessonIndex] = useState(0);
+  const [unlockedLessons, setUnlockedLessons] = useState(() => {
+    const saved = Number(window.localStorage.getItem('taamim-unlocked-lessons') || 1);
+    return Math.min(Math.max(saved, 1), lessonCount);
+  });
+  const [questionNumber, setQuestionNumber] = useState(1);
+  const [sessionScore, setSessionScore] = useState(0);
+  const [question, setQuestion] = useState<PracticeQuestion | null>(null);
+  const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null);
+  const [hadMistake, setHadMistake] = useState(false);
+  const [sessionComplete, setSessionComplete] = useState(false);
+  const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const questionAudioRef = React.useRef<HTMLAudioElement | null>(null);
+
+  const generateQuestion = React.useCallback(() => {
+    const pool = getLessonPool(lessonIndex);
+    const correct = pool[Math.floor(Math.random() * pool.length)];
+    const options = [correct];
+
+    while (options.length < Math.min(4, pool.length)) {
+      const candidate = pool[Math.floor(Math.random() * pool.length)];
+      if (!options.some(option => option.cleanName === candidate.cleanName)) {
+        options.push(candidate);
+      }
+    }
+
+    setQuestion({ correct, options: options.sort(() => Math.random() - 0.5) });
+    setFeedback(null);
+    setHadMistake(false);
+  }, [lessonIndex]);
+
+  useEffect(() => {
+    generateQuestion();
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      questionAudioRef.current?.pause();
+    };
+  }, [generateQuestion]);
+
+  const playQuestionAudio = () => {
+    if (!question) return;
+    questionAudioRef.current?.pause();
+    const audio = new Audio(assetUrl(`${question.correct.id}.mp3`));
+    questionAudioRef.current = audio;
+    audio.play().catch(error => console.error('Audio play failed', error));
+  };
+
+  const resetSession = (nextLesson = lessonIndex) => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setLessonIndex(nextLesson);
+    setQuestionNumber(1);
+    setSessionScore(0);
+    setSessionComplete(false);
+    setFeedback(null);
+    setHadMistake(false);
+    if (nextLesson === lessonIndex) generateQuestion();
+  };
+
+  const finishSession = (finalScore: number) => {
+    setSessionComplete(true);
+    if (finalScore >= 8 && lessonIndex + 1 < lessonCount) {
+      setUnlockedLessons(previous => {
+        const next = Math.max(previous, lessonIndex + 2);
+        window.localStorage.setItem('taamim-unlocked-lessons', String(next));
+        return next;
+      });
+    }
+  };
+
+  const handleAnswer = (selected: typeof taamim[0]) => {
+    if (!question || feedback === 'correct') return;
+
+    if (selected.cleanName === question.correct.cleanName) {
+      const nextScore = sessionScore + (hadMistake ? 0 : 1);
+      setSessionScore(nextScore);
+      setFeedback('correct');
+      playSound('correct');
+      timeoutRef.current = setTimeout(() => {
+        if (questionNumber >= sessionLength) {
+          finishSession(nextScore);
+        } else {
+          setQuestionNumber(number => number + 1);
+          generateQuestion();
+        }
+      }, 1100);
+    } else {
+      setHadMistake(true);
+      setFeedback('incorrect');
+      playSound('incorrect');
+      timeoutRef.current = setTimeout(() => setFeedback(null), 800);
+    }
+  };
+
+  if (!question) return null;
+
+  if (sessionComplete) {
+    const passed = sessionScore >= 8;
+    const hasNextLesson = lessonIndex + 1 < lessonCount;
+    return (
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="max-w-2xl mx-auto bg-white rounded-3xl border-4 border-amber-200 shadow-xl p-8 text-center">
+        <Trophy size={80} className="mx-auto text-amber-500 mb-4" />
+        <h2 className="text-4xl font-black text-sky-700 mb-3">סיימת את האימון!</h2>
+        <p className="text-2xl font-bold text-gray-700 mb-2">{sessionScore} מתוך {sessionLength} בניסיון הראשון</p>
+        <p className="text-lg text-gray-600 mb-8">
+          {passed ? (hasNextLesson ? 'מצוין! השיעור הבא נפתח עבורך.' : 'מצוין! השלמת את כל שיעורי הטעמים.') : 'כמעט! כדאי לנסות שוב ולכוון ל־8 הצלחות.'}
+        </p>
+        <div className="flex flex-col sm:flex-row justify-center gap-3">
+          <button onClick={() => resetSession()} className="px-7 py-4 rounded-full bg-sky-500 text-white text-xl font-bold hover:bg-sky-600">אימון נוסף</button>
+          {passed && hasNextLesson && (
+            <button onClick={() => resetSession(lessonIndex + 1)} className="px-7 py-4 rounded-full bg-amber-500 text-white text-xl font-bold hover:bg-amber-600">לשיעור הבא</button>
+          )}
+        </div>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-3xl mx-auto">
+      <div className="bg-white rounded-2xl p-4 shadow-sm mb-5 border-2 border-amber-100">
+        <div className="flex flex-wrap justify-center gap-2 mb-4">
+          {Array.from({ length: lessonCount }, (_, index) => {
+            const unlocked = index < unlockedLessons;
+            return (
+              <button
+                key={index}
+                disabled={!unlocked}
+                onClick={() => resetSession(index)}
+                className={`px-4 py-2 rounded-full font-bold transition-colors ${lessonIndex === index ? 'bg-amber-500 text-white' : unlocked ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+              >
+                שיעור {index + 1}{!unlocked ? ' 🔒' : ''}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-amber-700 font-bold text-lg">
+            <Trophy size={24} />
+            <span>שאלה {questionNumber}/{sessionLength} · הצלחות {sessionScore}</span>
+          </div>
+          <div className="flex bg-sky-50 p-1 rounded-full">
+            <button onClick={() => setGameType('visual')} className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold ${gameType === 'visual' ? 'bg-sky-500 text-white' : 'text-sky-700'}`}><Eye size={18} /> לפי סימן</button>
+            <button onClick={() => setGameType('audio')} className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold ${gameType === 'audio' ? 'bg-sky-500 text-white' : 'text-sky-700'}`}><Headphones size={18} /> לפי שמיעה</button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-3xl shadow-lg p-7 md:p-10 mb-7 text-center border-4 border-amber-200 relative overflow-hidden">
+        <h2 className="text-2xl text-gray-600 font-bold mb-7">
+          {gameType === 'visual' ? 'איזה טעם מופיע על המילה?' : 'איזה טעם שמעת?'}
+        </h2>
+        <div className="min-h-[160px] flex items-center justify-center">
+          {gameType === 'visual' ? (
+            <motion.div key={question.correct.id} animate={animations[question.correct.anim as keyof typeof animations]} className="font-serif text-gray-800 text-6xl md:text-8xl leading-relaxed">
+              {question.correct.questionText}
+            </motion.div>
+          ) : (
+            <button onClick={playQuestionAudio} className="flex flex-col items-center gap-3 text-sky-700 hover:text-sky-800" aria-label="השמע שוב את הטעם">
+              <span className="w-28 h-28 rounded-full bg-sky-100 flex items-center justify-center shadow-inner"><Volume2 size={58} /></span>
+              <span className="text-xl font-bold">לחץ כדי לשמוע</span>
+            </button>
+          )}
+        </div>
+
+        <AnimatePresence>
+          {feedback && (
+            <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} aria-live="polite" className={`absolute inset-0 flex flex-col items-center justify-center bg-white/95 ${feedback === 'correct' ? 'text-green-500' : 'text-red-500'}`}>
+              {feedback === 'correct' ? <CheckCircle2 size={90} /> : <XCircle size={90} />}
+              <h3 className="text-4xl font-black mt-3">{feedback === 'correct' ? 'כל הכבוד!' : 'נסה שוב!'}</h3>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {question.options.map(option => (
+          <motion.button key={`${question.correct.id}-${option.id}`} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => handleAnswer(option)} disabled={feedback === 'correct'} className="bg-white border-4 border-sky-100 hover:border-sky-300 hover:bg-sky-50 text-sky-800 text-xl md:text-2xl font-bold py-6 px-4 rounded-2xl shadow-sm">
+            {option.cleanName}
+          </motion.button>
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
 type Question = {
   correct: typeof taamim[0];
   options: typeof taamim;

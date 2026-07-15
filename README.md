@@ -1,20 +1,28 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# טעמי המקרא לילדים
 
-# Run and deploy your AI Studio app
+לומדה ומשחק לילדים המשלבים צפייה בסימני הטעמים, האזנה להקלטות ותרגול בקבוצות קטנות.
 
-This contains everything you need to run your app locally.
+## מה יש באפליקציה
 
-View your app in AI Studio: https://ai.studio/apps/802121a5-0ac0-4f20-83f4-22ab76786648
+- מצב למידה עם 26 קטעי שמע מוקלטים.
+- חמישה שיעורים מדורגים שנפתחים לפי הצלחה.
+- משחק זיהוי לפי סימן ומשחק זיהוי לפי שמיעה.
+- שמירת ההתקדמות בדפדפן, ללא חשבון משתמש.
 
-## Run Locally
+## הרצה ובנייה
 
-**Prerequisites:**  Node.js
+נדרשים Node.js ו-npm.
 
+```bash
+npm install
+npm run dev
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+בדיקה ובניית גרסת פרסום:
+
+```bash
+npm run lint
+npm run build
+```
+
+הבנייה משתמשת בנתיבים יחסיים, ולכן אפשר לפרסם את האפליקציה גם תחת תיקיית משנה באתר.
